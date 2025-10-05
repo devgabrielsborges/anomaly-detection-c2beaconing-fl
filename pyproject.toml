@@ -1,0 +1,7 @@
+[project]
+name = "anomaly-detection-c2beaconing-fl"
+version = "0.1.0"
+description = "Anomaly Detection in C2 Beaconing Traffic Using Privacy Preserving Federated Learning"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
