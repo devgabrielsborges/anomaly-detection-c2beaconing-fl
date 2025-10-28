@@ -209,3 +209,9 @@ __marimo__/
 docs/workflow
 
 uv.lock
+
+*.aux
+*.lof
+*.lot
+*.out
+*.toc
