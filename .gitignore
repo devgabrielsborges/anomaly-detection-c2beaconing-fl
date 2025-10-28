@@ -215,3 +215,10 @@ uv.lock
 *.lot
 *.out
 *.toc
+
+# ML/FL artifacts
+mlflow/
+mlruns/
+models/
+plots/
+results/
