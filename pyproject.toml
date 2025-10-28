@@ -4,4 +4,12 @@ version = "0.1.0"
 description = "Anomaly Detection in C2 Beaconing Traffic Using Privacy Preserving Federated Learning"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "duckdb>=1.4.1",
+    "fastparquet>=2024.11.0",
+    "matplotlib>=3.10.0",
+    "pandas>=2.3.3",
+    "python-dotenv>=1.2.1",
+    "seaborn>=0.13.2",
+    "ydata-profiling>=4.17.0",
+]
