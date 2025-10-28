@@ -1,0 +1,43 @@
+# Configuration for quick testing
+
+experiment:
+  name: "quick-test-anomaly-detection"
+  description: "Quick test run"
+  tracking_uri: null
+
+data:
+  dataset: "ctu13"
+  data_path: "data/processed"
+  features_to_drop:
+    - "StartTime"
+    - "SrcAddr"
+    - "DstAddr"
+    - "Label"
+    - "scenario"
+
+model:
+  type: "neural_network"
+
+  neural_network:
+    hidden_dims: [64, 32] # Smaller network
+    dropout_rate: 0.3
+    learning_rate: 0.001
+    batch_size: 1024 # Larger batches = faster
+    epochs: 3 # Just 3 epochs for testing
+    early_stopping_patience: 2
+    class_weight: null
+    random_state: 42
+
+training:
+  random_state: 42
+  verbose: true
+  sample_size: 10000 # Use only 10K samples for quick test
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+output:
+  model_dir: "models"
+  results_dir: "results"
+  plots_dir: "plots"
