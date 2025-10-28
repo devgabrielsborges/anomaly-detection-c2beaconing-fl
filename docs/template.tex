@@ -1,0 +1,81 @@
+\documentclass[a4paper, 12pt]{article}
+
+% --- PACOTES ---
+% --- Codificação e Fontes ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}      % Melhor codificação de fonte
+\usepackage{lmodern}          % Fonte com melhor estética
+\usepackage[brazil]{babel}
+\usepackage{microtype}        % Melhora a tipografia do documento
+
+% --- Layout e Estrutura ---
+\usepackage{geometry}
+\usepackage{graphicx}
+
+% --- Tabelas ---
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}         % Tabelas com visual profissional
+\usepackage{ragged2e}         % Melhor alinhamento em colunas estreitas
+
+% --- Citações e Referências ---
+\usepackage{natbib}           % Pacote para gerenciamento de citações
+
+% --- Listas ---
+\usepackage{enumitem}         % Customização de listas
+% Lista compacta para tabelas
+\newlist{compactitem}{itemize}{1}
+\setlist[compactitem]{label=\textbullet, topsep=0pt, partopsep=0pt, itemsep=0pt, parsep=0pt, leftmargin=*}
+
+% --- Links ---
+\usepackage[hidelinks]{hyperref} % Sempre por último nos pacotes
+
+
+% --- CONFIGURAÇÃO DA PÁGINA ---
+\geometry{
+    a4paper,
+    left=2.5cm,
+    right=2.5cm,
+    top=2.5cm,
+    bottom=2.5cm,
+}
+
+
+% --- INÍCIO DO DOCUMENTO ---
+\begin{document}
+
+% --- PÁGINA DE ROSTO ---
+\begin{titlepage}
+    \centering
+    \includegraphics[width=0.4\textwidth]{upe.png}\par
+    \vspace{1.5cm}
+    
+    {\large UNIVERSIDADE DE PERNAMBUCO - UPE}\par
+    \vspace{0.2cm}
+    {\large ESCOLA POLITÉCNICA DE PERNAMBUCO - POLI}
+    
+    \vfill % Espaço flexível
+    
+    {\Large \textbf{PLANO DE TRABALHO}}\par
+    
+    \vspace{1cm}
+    
+    {\huge \bfseries NETWORK TRAFFIC DATASET CONSTRUCTION FOR BEACONING AND ANOMALY DETECTION\par}
+    
+    \vfill % Espaço flexível
+    
+    \begin{flushleft}
+    \large
+        \textbf{Alunos:} Gabriel Souza Borges, Ranie Campos Lins \\
+        \textbf{Orientador:} Prof. Dr. Bruno José Torres Fernandes \\
+        \textbf{Co-Orientador:} Prof. Dr. Leandro Honorato de Souza Silva
+    \end{flushleft}
+    
+    \vfill % Espaço flexível
+    
+    \large
+    Recife-PE \\
+    \today
+\end{titlepage}
+
+\end{document}
