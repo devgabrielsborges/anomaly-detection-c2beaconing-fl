@@ -216,9 +216,10 @@ uv.lock
 *.out
 *.toc
 
-# ML/FL artifacts
-mlflow/
-mlruns/
-models/
-plots/
-results/
+# ML/FL artifacts (saved models and experiment outputs)
+# NOTE: src/models/ contains source code and should be tracked
+/mlflow/
+/mlruns/
+/models/
+/plots/
+/results/
