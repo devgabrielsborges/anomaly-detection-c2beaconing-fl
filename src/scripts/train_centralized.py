@@ -95,7 +95,7 @@ def train_centralized(config: dict):
     neg_count = np.sum(y_train == 0)
     pos_count = np.sum(y_train == 1)
     scale_pos_weight = neg_count / pos_count
-    
+
     logger.info(f"Class distribution - Normal: {neg_count:,}, Anomaly: {pos_count:,}")
     logger.info(f"Class imbalance ratio: {scale_pos_weight:.2f}:1")
 
