@@ -92,24 +92,26 @@ def train_centralized(config: dict):
             y_train = y_train[indices]
             logger.info(f"Training set reduced to {len(X_train)} samples")
 
-    # Calculate class weights if needed
-    if config["model"]["type"] in ["xgboost", "neural_network"]:
-        neg_count = np.sum(y_train == 0)
-        pos_count = np.sum(y_train == 1)
-        scale_pos_weight = neg_count / pos_count
+    neg_count = np.sum(y_train == 0)
+    pos_count = np.sum(y_train == 1)
+    scale_pos_weight = neg_count / pos_count
+    
+    logger.info(f"Class distribution - Normal: {neg_count:,}, Anomaly: {pos_count:,}")
+    logger.info(f"Class imbalance ratio: {scale_pos_weight:.2f}:1")
 
-        logger.info(f"Class imbalance ratio: {scale_pos_weight:.2f}:1")
+    # Apply class weights if needed
+    if config["model"]["type"] == "xgboost":
+        if config["model"]["xgboost"]["scale_pos_weight"] is None:
+            config["model"]["xgboost"]["scale_pos_weight"] = scale_pos_weight
+            logger.info(f"Applied scale_pos_weight: {scale_pos_weight:.2f}")
 
-        if config["model"]["type"] == "xgboost":
-            if config["model"]["xgboost"]["scale_pos_weight"] is None:
-                config["model"]["xgboost"]["scale_pos_weight"] = scale_pos_weight
-
-        elif config["model"]["type"] == "neural_network":
-            if config["model"]["neural_network"]["class_weight"] is None:
-                config["model"]["neural_network"]["class_weight"] = [
-                    1.0,
-                    scale_pos_weight,
-                ]
+    elif config["model"]["type"] == "neural_network":
+        if config["model"]["neural_network"]["class_weight"] is None:
+            config["model"]["neural_network"]["class_weight"] = [
+                1.0,
+                scale_pos_weight,
+            ]
+            logger.info(f"Applied class_weight: [1.0, {scale_pos_weight:.2f}]")
 
     # Create model
     logger.info(f"Creating {config['model']['type']} model...")
