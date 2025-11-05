@@ -1,0 +1,42 @@
+# Cross-validation configuration for Random Forest with balanced class weights - UGR'16
+experiment_name: "ugr16-cv-random-forest"
+model_type: "random_forest"
+dataset: "ugr16"
+
+# Data configuration
+data_path: "data/processed"
+features_to_drop:
+  - "Label"
+  - "label"
+  - "is_malicious" # This is derived from binary_label - data leakage!
+  - "src_ip"
+  - "dst_ip"
+  - "timestamp"
+
+# No sampling - use full dataset for CV
+sample_size: null
+
+# Cross-validation settings
+n_folds: 5
+random_state: 42
+
+# Model configuration
+model:
+  random_forest:
+    n_estimators: 100
+    max_depth: 20
+    min_samples_split: 10
+    min_samples_leaf: 4
+    class_weight: "balanced"
+    random_state: 42
+    n_jobs: -1
+
+# MLflow configuration
+use_mlflow: true
+mlflow_tracking_uri: "file:./mlflow"
+
+# Output
+output_dir: "results/cross_validation/ugr16"
+
+# Logging
+logging_level: "INFO"

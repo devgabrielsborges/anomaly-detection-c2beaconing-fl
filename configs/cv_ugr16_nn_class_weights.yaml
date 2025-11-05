@@ -1,0 +1,43 @@
+# Cross-validation configuration for Neural Network with class weights - UGR'16
+experiment_name: "ugr16-cv-neural-network"
+model_type: "neural_network"
+dataset: "ugr16"
+
+# Data configuration
+data_path: "data/processed"
+features_to_drop:
+  - "Label"
+  - "label"
+  - "is_malicious" # This is derived from binary_label - data leakage!
+  - "src_ip"
+  - "dst_ip"
+  - "timestamp"
+
+# No sampling - use full dataset for CV
+sample_size: null
+
+# Cross-validation settings
+n_folds: 5
+random_state: 42
+
+# Model configuration
+model:
+  neural_network:
+    hidden_dims: [128, 64, 32]
+    dropout_rate: 0.3
+    learning_rate: 0.001
+    batch_size: 512
+    epochs: 20
+    early_stopping_patience: 5
+    class_weight: "balanced"
+    random_state: 42
+
+# MLflow configuration
+use_mlflow: true
+mlflow_tracking_uri: "file:./mlflow"
+
+# Output
+output_dir: "results/cross_validation/ugr16"
+
+# Logging
+logging_level: "INFO"
