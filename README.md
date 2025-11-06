@@ -46,6 +46,28 @@ pip install --upgrade pip
 pip install -e .
 ```
 
+### Creating Dataset Samples
+
+Before training, you need to create properly-sampled parquet files from the raw datasets:
+
+```bash
+# Quick start (uses paths from .env)
+./create_samples.sh
+
+# Or use Python directly
+python src/scripts/create_dataset_samples.py
+```
+
+This creates stratified samples (~2.8M rows each) with proper representation of malicious traffic:
+
+- `data/raw/ctu13_sample.parquet` - CTU-13 botnet detection dataset
+- `data/raw/ugr16_sample.parquet` - UGR'16 ISP traffic with attacks
+
+For detailed instructions, see:
+
+- **Quick Reference**: [QUICK_SAMPLING_GUIDE.md](QUICK_SAMPLING_GUIDE.md)
+- **Full Documentation**: [SAMPLING_GUIDE.md](SAMPLING_GUIDE.md)
+
 ### Environment Variables
 
 - Supply dataset paths and MLflow tracking URLs via a `.env` file (see `python-dotenv` dependency).
@@ -53,17 +75,15 @@ pip install -e .
 
 ## Reproducing the EDA
 
-1. Download or generate the processed Parquet/CSV inputs referenced in `data/raw/` and `data/processed/metadata` JSON files.
-2. Launch `notebooks/eda_ctu13.ipynb` or `notebooks/eda_ugr16.ipynb` and execute sequentially to regenerate plots/tables.
-3. Run `pdflatex` (twice) on `docs/CTU13_DATASET_EDA.tex` or `docs/UGR16_DATASET_EDA.tex` to compile the reports:
+1. Run `pdflatex` (twice) on `docs/CTU13_DATASET_EDA.tex` or `docs/UGR16_DATASET_EDA.tex` to compile the reports:pdflatex CTU13_DATASET_EDA.tex
 
    ```bash
-   pdflatex CTU13_DATASET_EDA.tex
    pdflatex CTU13_DATASET_EDA.tex
    ```
 
    Generated PDFs summarize dataset methodology, label distributions, temporal patterns, and implications for federated training.
-
+1. Download or generate the processed Parquet/CSV inputs referenced in `data/raw/` and `data/processed/metadata` JSON files.
+2. Launch `notebooks/eda_ctu13.ipynb` or `notebooks/eda_ugr16.ipynb` and execute sequentially to regenerate plots/tables.
 
 ## Training Workflows
 
@@ -73,13 +93,11 @@ pip install -e .
   python src/scripts/preprocess_ctu13.py --input data/raw/ctu13_sample.parquet --output data/processed --advanced
   python src/scripts/preprocess_ugr16.py --input data/raw/ugr16_sample.parquet --output data/processed --advanced
   ```
-
 - **Centralized training:** `python src/scripts/train_centralized.py --config configs/centralized_config.yaml`
 - **Cross-validation experiments:** `python src/scripts/cross_validate.py --config configs/cv_xgboost_balanced.yaml`
 - **Federated simulation:** `python src/federated/server.py --config configs/federated_config.yaml`
 
 All runs log metrics and artifacts through MLflow (`src/utils/mlflow_logger.py`). Adjust class-balancing strategies with the provided config variants (class weights, balanced sampling, etc.).
-
 
 ## Roadmap
 
