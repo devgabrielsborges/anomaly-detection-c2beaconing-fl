@@ -186,7 +186,9 @@ class DatasetSampler:
         self, input_path: Path, output_path: Path
     ) -> Tuple[pd.DataFrame, dict]:
         """
-        Sample UGR'16 dataset with stratification.
+        Sample UGR'16 dataset with DuckDB reservoir sampling.
+
+        Uses DuckDB to avoid loading entire dataset into memory.
 
         Args:
             input_path: Path to UGR'16 CSV file
@@ -200,6 +202,124 @@ class DatasetSampler:
         logger.info("=" * 80)
         logger.info(f"Input: {input_path}")
         logger.info(f"Output: {output_path}")
+
+        try:
+            import duckdb
+        except ImportError:
+            logger.error("DuckDB not installed. Install with: pip install duckdb")
+            logger.error("Falling back to memory-intensive pandas method...")
+            return self._sample_ugr16_pandas(input_path, output_path)
+
+        logger.info("Using DuckDB for memory-efficient reservoir sampling...")
+
+        try:
+            # Connect to DuckDB
+            con = duckdb.connect(":memory:")
+
+            # Set random seed
+            con.execute(f"SELECT setseed({self.random_seed / (2**31 - 1)})")
+
+            # Column names for UGR'16
+            column_names = [
+                "timestamp",
+                "duration",
+                "src_ip",
+                "dst_ip",
+                "src_port",
+                "dst_port",
+                "protocol",
+                "flags",
+                "tos",
+                "packets_fwd",
+                "packets_bwd",
+                "bytes_total",
+                "label",
+            ]
+
+            logger.info("Getting dataset statistics...")
+
+            # Get total row count efficiently
+            count_query = f"""
+                SELECT COUNT(*) as total_rows
+                FROM read_csv_auto('{input_path}',
+                    header=false,
+                    names={column_names},
+                    ignore_errors=true)
+            """
+            total_rows = con.execute(count_query).fetchone()[0]
+            logger.info(f"  Total rows in dataset: {total_rows:,}")
+
+            # Perform reservoir sampling using DuckDB
+            logger.info(
+                f"Reservoir sampling {self.sample_size:,} rows "
+                "(no full dataset load required)..."
+            )
+
+            sample_query = f"""
+                SELECT *
+                FROM read_csv_auto('{input_path}',
+                    header=false,
+                    names={column_names},
+                    ignore_errors=true)
+                USING SAMPLE reservoir({self.sample_size} ROWS)
+                REPEATABLE ({self.random_seed})
+            """
+
+            # Execute sampling and convert to pandas
+            sampled_df = con.execute(sample_query).df()
+
+            logger.info(f"✓ Sampled {len(sampled_df):,} rows")
+            logger.info(f"  Sampling ratio: {len(sampled_df) / total_rows * 100:.2f}%")
+
+            # Close connection
+            con.close()
+
+            # Save to parquet
+            self._save_parquet(sampled_df, output_path)
+
+            # Define malicious condition for metadata
+            malicious_keywords = [
+                "botnet",
+                "attack",
+                "anomaly",
+                "malicious",
+                "ddos",
+                "worm",
+                "spam",
+                "blacklist",
+            ]
+
+            def is_malicious(labels):
+                pattern = "|".join(malicious_keywords)
+                return labels.astype(str).str.contains(pattern, case=False, na=False)
+
+            # Generate metadata
+            metadata = self._generate_metadata(
+                sampled_df, "label", is_malicious, "UGR16"
+            )
+            metadata["total_rows_in_source"] = total_rows
+            metadata["sampling_method"] = "duckdb_reservoir"
+
+            return sampled_df, metadata
+
+        except Exception as e:
+            logger.error(f"DuckDB sampling failed: {e}")
+            raise
+
+    def _sample_ugr16_pandas(
+        self, input_path: Path, output_path: Path
+    ) -> Tuple[pd.DataFrame, dict]:
+        """
+        Fallback: Sample UGR'16 dataset with pandas (memory-intensive).
+
+        Args:
+            input_path: Path to UGR'16 CSV file
+            output_path: Path to save parquet sample
+
+        Returns:
+            Tuple of (sampled dataframe, metadata dict)
+        """
+        logger.warning("Using pandas method - may require significant RAM!")
 
         # Load data
         logger.info("Loading UGR'16 dataset...")
@@ -254,6 +374,7 @@ class DatasetSampler:
 
         # Generate metadata
         metadata = self._generate_metadata(sampled_df, "label", is_malicious, "UGR16")
+        metadata["sampling_method"] = "pandas_stratified"
 
         return sampled_df, metadata
 
@@ -266,7 +387,7 @@ class DatasetSampler:
 
         try:
             df.to_parquet(
-                output_path, engine="fastparquet", compression="snappy", index=False
+                output_path, engine="pyarrow", compression="snappy", index=False
             )
 
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
@@ -274,7 +395,7 @@ class DatasetSampler:
             logger.info(f"  File size: {file_size_mb:.2f} MB")
 
             # Verification
-            verification_df = pd.read_parquet(output_path, engine="fastparquet")
+            verification_df = pd.read_parquet(output_path, engine="pyarrow")
             logger.info(f"  Verification: Reloaded {len(verification_df):,} rows")
 
         except Exception as e:
