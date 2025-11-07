@@ -114,7 +114,7 @@ class FeatureEngineer:
         df["iat_cv"] = pd.to_numeric(df["iat_cv"], errors="coerce")
         df["iat_cv"] = df["iat_cv"].replace([np.inf, -np.inf], np.nan)
         df["iat_cv"] = df["iat_cv"].fillna(0)
-        
+
         df["periodicity_score"] = 1 / (df["iat_cv"] + 1e-9)
 
         logger.info("Added periodicity features")
@@ -290,7 +290,7 @@ class FeatureEngineer:
             df["bytes_cv"] = pd.to_numeric(df["bytes_cv"], errors="coerce")
             df["bytes_cv"] = df["bytes_cv"].replace([np.inf, -np.inf], np.nan)
             df["bytes_cv"] = df["bytes_cv"].fillna(0)
-            
+
             df["bytes_consistency_score"] = 1 / (df["bytes_cv"] + 1e-9)
 
         pkts_cols = ["TotPkts", "total_packets"]
@@ -310,12 +310,12 @@ class FeatureEngineer:
             )
 
             df = df.merge(pkts_stats, on=group_cols, how="left")
-            
+
             # Convert CV to numeric and handle inf/nan values
             df["pkts_cv"] = pd.to_numeric(df["pkts_cv"], errors="coerce")
             df["pkts_cv"] = df["pkts_cv"].replace([np.inf, -np.inf], np.nan)
             df["pkts_cv"] = df["pkts_cv"].fillna(0)
-            
+
             df["pkts_consistency_score"] = 1 / (df["pkts_cv"] + 1e-9)
 
         logger.info("Added size consistency features")
