@@ -5,9 +5,9 @@
     "rows_after_cleaning": 2800000
   },
   "labels": {
-    "botnet_samples": 40614,
-    "background_samples": 2759386,
-    "imbalance_ratio": 67.94174422612892
+    "botnet_samples": 40603,
+    "background_samples": 2759397,
+    "imbalance_ratio": 67.9604216437209
   },
   "features": [
     "StartTime",
@@ -57,12 +57,34 @@
     "state_FSA_FSA",
     "state_URP",
     "state_FSRPA_FSPA",
-    "state_FSPA_FSRPA"
+    "state_FSPA_FSRPA",
+    "inter_arrival_time",
+    "iat_mean",
+    "iat_std",
+    "iat_median",
+    "iat_min",
+    "iat_max",
+    "iat_cv",
+    "periodicity_score",
+    "flow_count_mean",
+    "flow_count_std",
+    "flow_count_max",
+    "flow_count_total",
+    "dst_port_entropy",
+    "protocol_entropy",
+    "bytes_mean",
+    "bytes_std",
+    "bytes_cv",
+    "bytes_consistency_score",
+    "pkts_mean",
+    "pkts_std",
+    "pkts_cv",
+    "pkts_consistency_score"
   ],
-  "train_samples": 1959999,
-  "val_samples": 280000,
-  "test_samples": 560000,
-  "total_samples": 2799999,
+  "train_samples": 1316720,
+  "val_samples": 188103,
+  "test_samples": 376206,
+  "total_samples": 1881029,
   "test_size": 0.2,
   "val_size": 0.1,
   "random_state": 42
