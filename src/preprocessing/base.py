@@ -129,9 +129,9 @@ class BasePreprocessor(ABC):
             train_val_df,
             test_size=self.val_size / (1 - self.test_size),
             random_state=self.random_state,
-            stratify=train_val_df[label_col]
-            if label_col in train_val_df.columns
-            else None,
+            stratify=(
+                train_val_df[label_col] if label_col in train_val_df.columns else None
+            ),
         )
 
         logger.info(f"Train set: {len(train_df):,} samples")

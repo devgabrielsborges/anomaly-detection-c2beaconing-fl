@@ -244,6 +244,7 @@ def load_preprocessed_data(
     data_path: str,
     dataset: str = "ctu13",
     features_to_drop: Optional[List[str]] = None,
+    prefix: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
     """
     Load preprocessed data for training.
@@ -252,6 +253,7 @@ def load_preprocessed_data(
         data_path: Path to processed data directory
         dataset: Dataset name ('ctu13' or 'ugr16')
         features_to_drop: List of feature names to drop (e.g., identifiers)
+        prefix: Optional file prefix (if None, tries dataset_advanced, then dataset)
 
     Returns:
         Tuple of (X_train, y_train, X_test, y_test, feature_names)

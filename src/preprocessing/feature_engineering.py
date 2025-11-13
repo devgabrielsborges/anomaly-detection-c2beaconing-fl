@@ -33,239 +33,393 @@ class FeatureEngineer:
             time_window: Time window for aggregation (pandas offset string)
         """
         self.time_window = time_window
+        self.fitted_ = False
+        self.statistics_ = {
+            "periodicity": {},
+            "aggregation": {},
+            "entropy": {},
+            "consistency": {},
+        }
+        self.group_cols_ = None
+        self.timestamp_col_ = None
 
-    def compute_periodicity_features(
+    def _determine_group_cols(self, df: pd.DataFrame) -> List[str]:
+        """Determine appropriate grouping columns from DataFrame."""
+        possible_src = ["SrcAddr", "src_ip"]
+        possible_dst = ["DstAddr", "dst_ip"]
+
+        src_col = next((c for c in possible_src if c in df.columns), None)
+        dst_col = next((c for c in possible_dst if c in df.columns), None)
+
+        if src_col and dst_col:
+            return [src_col, dst_col]
+        elif src_col:
+            return [src_col]
+        else:
+            logger.warning("No suitable grouping columns found")
+            return []
+
+    def fit(
         self,
         df: pd.DataFrame,
         timestamp_col: str = "timestamp",
         group_cols: Optional[List[str]] = None,
-    ) -> pd.DataFrame:
+        enable_periodicity: bool = True,
+        enable_aggregation: bool = True,
+        enable_entropy: bool = True,
+        enable_consistency: bool = True,
+    ) -> "FeatureEngineer":
         """
-        Compute periodicity features for beaconing detection.
+        Learn aggregation statistics from TRAINING data only.
 
-        C2 beaconing typically exhibits periodic behavior with regular
-        intervals between connections.
+        CRITICAL: This must be called ONLY on training data after train/test split.
 
         Args:
-            df: DataFrame with flow data
+            df: Training DataFrame (post-split)
             timestamp_col: Name of timestamp column
             group_cols: Columns to group by (e.g., src_ip, dst_ip)
+            enable_*: Flags to enable specific feature types
 
         Returns:
-            DataFrame with added periodicity features
+            self (for method chaining)
         """
-        logger.info("Computing periodicity features")
+        logger.info("=" * 80)
+        logger.info("FITTING FeatureEngineer on TRAINING data only")
+        logger.info("=" * 80)
+        logger.info(f"Training samples: {len(df):,}")
 
-        if timestamp_col not in df.columns:
+        self.timestamp_col_ = timestamp_col
+
+        # Determine grouping columns
+        if group_cols is None:
+            group_cols = self._determine_group_cols(df)
+        self.group_cols_ = group_cols
+
+        if not self.group_cols_:
             logger.warning(
-                f"Timestamp column '{timestamp_col}' not found. "
-                "Skipping periodicity features."
+                "No grouping columns available - skipping aggregated features"
             )
+            self.fitted_ = True
+            return self
+
+        # Compute statistics on training data only
+        if enable_periodicity and timestamp_col in df.columns:
+            self._fit_periodicity_features(df)
+
+        if enable_aggregation and timestamp_col in df.columns:
+            self._fit_aggregation_features(df)
+
+        if enable_entropy:
+            self._fit_entropy_features(df)
+
+        if enable_consistency:
+            self._fit_consistency_features(df)
+
+        self.fitted_ = True
+        logger.info("✓ FeatureEngineer fitted successfully")
+        total_stats = sum(
+            len(v) if isinstance(v, dict) else 0 for v in self.statistics_.values()
+        )
+        logger.info(f"✓ Statistics computed for {total_stats} unique groups")
+        logger.info("=" * 80)
+
+        return self
+
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Apply learned statistics to new data (validation/test).
+
+        This uses ONLY the statistics computed during fit() on training data.
+        No new statistics are computed from this data.
+
+        Args:
+            df: DataFrame to transform (can be train/val/test)
+
+        Returns:
+            DataFrame with engineered features added
+        """
+        if not self.fitted_:
+            raise ValueError(
+                "FeatureEngineer must be fitted before transform. "
+                "Call fit() on training data first."
+            )
+
+        logger.info(f"Transforming {len(df):,} samples using learned statistics")
+
+        df = df.copy()
+
+        if not self.group_cols_:
+            logger.warning("No grouping columns - returning original DataFrame")
             return df
 
-        if group_cols is None:
-            # Default grouping
-            possible_src = ["SrcAddr", "src_ip"]
-            possible_dst = ["DstAddr", "dst_ip"]
+        # Apply learned statistics
+        if self.statistics_["periodicity"]:
+            df = self._transform_periodicity_features(df)
 
-            src_col = next((c for c in possible_src if c in df.columns), None)
-            dst_col = next((c for c in possible_dst if c in df.columns), None)
+        if self.statistics_["aggregation"]:
+            df = self._transform_aggregation_features(df)
 
-            if src_col and dst_col:
-                group_cols = [src_col, dst_col]
-            else:
-                logger.warning(
-                    "No suitable grouping columns found. Skipping periodicity features."
-                )
-                return df
+        if self.statistics_["entropy"]:
+            df = self._transform_entropy_features(df)
 
-        # Sort by time
-        df = df.sort_values(timestamp_col)
+        if self.statistics_["consistency"]:
+            df = self._transform_consistency_features(df)
+
+        logger.info("✓ Transform completed")
+
+        return df
+
+    def fit_transform(
+        self,
+        df: pd.DataFrame,
+        timestamp_col: str = "timestamp",
+        group_cols: Optional[List[str]] = None,
+        enable_periodicity: bool = True,
+        enable_aggregation: bool = True,
+        enable_entropy: bool = True,
+        enable_consistency: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Fit on training data and transform it in one step.
+
+        This should ONLY be used on training data.
+        For val/test, use transform() separately.
+        """
+        self.fit(
+            df,
+            timestamp_col,
+            group_cols,
+            enable_periodicity,
+            enable_aggregation,
+            enable_entropy,
+            enable_consistency,
+        )
+        return self.transform(df)
+
+    def _fit_periodicity_features(self, df: pd.DataFrame):
+        """Learn inter-arrival time statistics from training data."""
+        logger.info("  Computing periodicity statistics...")
+
+        df_sorted = df.sort_values(self.timestamp_col_)
 
         # Compute inter-arrival times
-        df["inter_arrival_time"] = (
-            df.groupby(group_cols, observed=True)[timestamp_col]
+        df_sorted = df_sorted.copy()
+        df_sorted["_iat"] = (
+            df_sorted.groupby(self.group_cols_, observed=True)[self.timestamp_col_]
             .diff()
             .dt.total_seconds()
         )
 
-        # Aggregate periodicity metrics per group
+        # Aggregate statistics per group
         periodicity_stats = (
-            df.groupby(group_cols, observed=True)["inter_arrival_time"]
-            .agg(
-                [
-                    ("iat_mean", "mean"),
-                    ("iat_std", "std"),
-                    ("iat_median", "median"),
-                    ("iat_min", "min"),
-                    ("iat_max", "max"),
-                    (
-                        "iat_cv",
-                        lambda x: x.std() / (x.mean() + 1e-9),
-                    ),  # Coefficient of variation
-                ]
-            )
+            df_sorted.groupby(self.group_cols_, observed=True)["_iat"]
+            .agg(["mean", "std", "median", "min", "max"])
             .reset_index()
         )
 
-        df = df.merge(periodicity_stats, on=group_cols, how="left")
+        # Compute CV
+        periodicity_stats["cv"] = periodicity_stats["std"] / (
+            periodicity_stats["mean"] + 1e-9
+        )
+        periodicity_stats["cv"] = (
+            periodicity_stats["cv"].replace([np.inf, -np.inf], 0).fillna(0)
+        )
 
-        # Convert CV to numeric and handle inf/nan values
-        df["iat_cv"] = pd.to_numeric(df["iat_cv"], errors="coerce")
-        df["iat_cv"] = df["iat_cv"].replace([np.inf, -np.inf], np.nan)
-        df["iat_cv"] = df["iat_cv"].fillna(0)
+        # Store as dictionary for fast lookup
+        if len(self.group_cols_) == 1:
+            self.statistics_["periodicity"] = periodicity_stats.set_index(
+                self.group_cols_[0]
+            ).to_dict("index")
+        else:
+            self.statistics_["periodicity"] = periodicity_stats.set_index(
+                self.group_cols_
+            ).to_dict("index")
 
+        logger.info(
+            f"    Stored stats for {len(self.statistics_['periodicity'])} groups"
+        )
+
+    def _transform_periodicity_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply learned periodicity statistics."""
+        # Create DataFrame from stored statistics
+        stats_df = pd.DataFrame.from_dict(
+            self.statistics_["periodicity"], orient="index"
+        )
+
+        # Reset index and handle column naming
+        if len(self.group_cols_) == 1:
+            # Single group column - simple case
+            stats_df = stats_df.reset_index()
+            stats_df = stats_df.rename(columns={"index": self.group_cols_[0]})
+        else:
+            stats_df = stats_df.reset_index()
+            if "level_0" in stats_df.columns:
+                # Generic names were created, need to rename
+                rename_dict = {}
+                for i, col in enumerate(self.group_cols_):
+                    rename_dict[f"level_{i}"] = col
+                stats_df = stats_df.rename(columns=rename_dict)
+
+        # Merge with data
+        df = df.merge(
+            stats_df, left_on=self.group_cols_, right_on=self.group_cols_, how="left"
+        )
+
+        # Rename columns
+        df = df.rename(
+            columns={
+                "mean": "iat_mean",
+                "std": "iat_std",
+                "median": "iat_median",
+                "min": "iat_min",
+                "max": "iat_max",
+                "cv": "iat_cv",
+            }
+        )
+
+        # Fill missing values (for groups not seen in training)
+        fill_values = {
+            "iat_mean": 0,
+            "iat_std": 0,
+            "iat_median": 0,
+            "iat_min": 0,
+            "iat_max": 0,
+            "iat_cv": 0,
+        }
+        df = df.fillna(fill_values)
+
+        # Compute derived features
         df["periodicity_score"] = 1 / (df["iat_cv"] + 1e-9)
-
-        logger.info("Added periodicity features")
 
         return df
 
-    def compute_flow_aggregation_features(
-        self,
-        df: pd.DataFrame,
-        timestamp_col: str = "timestamp",
-        group_cols: Optional[List[str]] = None,
-    ) -> pd.DataFrame:
-        """
-        Compute aggregated flow statistics over time windows.
+    def _fit_aggregation_features(self, df: pd.DataFrame):
+        """Learn flow aggregation statistics from training data."""
+        logger.info("  Computing aggregation statistics...")
 
-        Args:
-            df: DataFrame with flow data
-            timestamp_col: Name of timestamp column
-            group_cols: Columns to group by
+        # Use only source for aggregation
+        src_col = self.group_cols_[0]
 
-        Returns:
-            DataFrame with aggregation features
-        """
-        logger.info("Computing flow aggregation features")
-
-        if timestamp_col not in df.columns:
-            logger.warning(
-                f"Timestamp column '{timestamp_col}' not found. "
-                "Skipping aggregation features."
-            )
-            return df
-
-        if group_cols is None:
-            possible_src = ["SrcAddr", "src_ip"]
-            src_col = next((c for c in possible_src if c in df.columns), None)
-            if src_col:
-                group_cols = [src_col]
-            else:
-                logger.warning("No suitable grouping column found.")
-                return df
-
-        df = df.sort_values(timestamp_col)
-        df_indexed = df.set_index(timestamp_col)
+        df_sorted = df.sort_values(self.timestamp_col_)
+        df_indexed = df_sorted.set_index(self.timestamp_col_)
 
         flow_counts = (
-            df_indexed.groupby(group_cols, observed=True)
+            df_indexed.groupby([src_col], observed=True)
             .resample(self.time_window)
             .size()
             .reset_index(name="flows_per_window")
         )
 
         flow_stats = (
-            flow_counts.groupby(group_cols, observed=True)["flows_per_window"]
-            .agg(
-                [
-                    ("flow_count_mean", "mean"),
-                    ("flow_count_std", "std"),
-                    ("flow_count_max", "max"),
-                    ("flow_count_total", "sum"),
-                ]
-            )
+            flow_counts.groupby([src_col], observed=True)["flows_per_window"]
+            .agg(["mean", "std", "max", "sum"])
             .reset_index()
         )
 
-        df = df.merge(flow_stats, on=group_cols, how="left")
+        flow_stats["std"] = flow_stats["std"].fillna(0)
 
-        logger.info("Added flow aggregation features")
+        self.statistics_["aggregation"] = flow_stats.set_index(src_col).to_dict("index")
+
+        logger.info(
+            f"    Stored stats for {len(self.statistics_['aggregation'])} sources"
+        )
+
+    def _transform_aggregation_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply learned aggregation statistics."""
+        src_col = self.group_cols_[0]
+
+        # Create DataFrame from stored statistics
+        stats_df = pd.DataFrame.from_dict(
+            self.statistics_["aggregation"], orient="index"
+        ).reset_index()
+        stats_df = stats_df.rename(columns={"index": src_col})
+
+        # Merge with data
+        df = df.merge(stats_df, on=src_col, how="left", suffixes=("", "_agg"))
+
+        # Rename columns
+        df = df.rename(
+            columns={
+                "mean": "flow_count_mean",
+                "std": "flow_count_std",
+                "max": "flow_count_max",
+                "sum": "flow_count_total",
+            }
+        )
+
+        # Fill missing values
+        fill_values = {
+            "flow_count_mean": 0,
+            "flow_count_std": 0,
+            "flow_count_max": 0,
+            "flow_count_total": 0,
+        }
+        df = df.fillna(fill_values)
 
         return df
 
-    def compute_entropy_features(
-        self, df: pd.DataFrame, group_cols: Optional[List[str]] = None
-    ) -> pd.DataFrame:
-        """
-        Compute entropy-based features for behavioral analysis.
+    def _fit_entropy_features(self, df: pd.DataFrame):
+        """Learn entropy statistics from training data."""
+        logger.info("  Computing entropy statistics...")
 
-        Low entropy in destination ports/IPs suggests focused communication
-        typical of C2 beaconing.
-
-        Args:
-            df: DataFrame with flow data
-            group_cols: Columns to group by
-
-        Returns:
-            DataFrame with entropy features
-        """
-        logger.info("Computing entropy features")
-
-        if group_cols is None:
-            possible_src = ["SrcAddr", "src_ip"]
-            src_col = next((c for c in possible_src if c in df.columns), None)
-            if src_col:
-                group_cols = [src_col]
-            else:
-                return df
+        src_col = self.group_cols_[0]
 
         def compute_entropy(series):
-            """Compute Shannon entropy of a series."""
             value_counts = series.value_counts(normalize=True)
-            return stats.entropy(value_counts)
+            return stats.entropy(value_counts) if len(value_counts) > 0 else 0.0
 
-        # Destination port entropy
+        entropy_stats = {}
+
+        # Port entropy
         port_cols = ["Dport", "dst_port"]
         port_col = next((c for c in port_cols if c in df.columns), None)
 
         if port_col:
             port_entropy = (
-                df.groupby(group_cols, observed=True)[port_col]
+                df.groupby([src_col], observed=True)[port_col]
                 .apply(compute_entropy)
-                .reset_index(name="dst_port_entropy")
+                .to_dict()
             )
-            df = df.merge(port_entropy, on=group_cols, how="left")
+            entropy_stats["port"] = port_entropy
 
         # Protocol entropy
-        if "Proto" in df.columns or "protocol" in df.columns:
-            proto_col = "Proto" if "Proto" in df.columns else "protocol"
-            proto_entropy = (
-                df.groupby(group_cols, observed=True)[proto_col]
-                .apply(compute_entropy)
-                .reset_index(name="protocol_entropy")
-            )
-            df = df.merge(proto_entropy, on=group_cols, how="left")
+        proto_cols = ["Proto", "protocol"]
+        proto_col = next((c for c in proto_cols if c in df.columns), None)
 
-        logger.info("Added entropy features")
+        if proto_col:
+            proto_entropy = (
+                df.groupby([src_col], observed=True)[proto_col]
+                .apply(compute_entropy)
+                .to_dict()
+            )
+            entropy_stats["protocol"] = proto_entropy
+
+        self.statistics_["entropy"] = entropy_stats
+
+        logger.info(f"    Stored entropy for {len(entropy_stats)} feature types")
+
+    def _transform_entropy_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply learned entropy statistics."""
+        src_col = self.group_cols_[0]
+
+        if "port" in self.statistics_["entropy"]:
+            df["dst_port_entropy"] = (
+                df[src_col].map(self.statistics_["entropy"]["port"]).fillna(0.0)
+            )
+
+        if "protocol" in self.statistics_["entropy"]:
+            df["protocol_entropy"] = (
+                df[src_col].map(self.statistics_["entropy"]["protocol"]).fillna(0.0)
+            )
 
         return df
 
-    def compute_size_consistency_features(
-        self, df: pd.DataFrame, group_cols: Optional[List[str]] = None
-    ) -> pd.DataFrame:
-        """
-        Compute packet/byte size consistency features.
+    def _fit_consistency_features(self, df: pd.DataFrame):
+        """Learn size consistency statistics from training data."""
+        logger.info("  Computing consistency statistics...")
 
-        C2 beaconing often has consistent packet sizes.
-
-        Args:
-            df: DataFrame with flow data
-            group_cols: Columns to group by
-
-        Returns:
-            DataFrame with size consistency features
-        """
-        logger.info("Computing size consistency features")
-
-        if group_cols is None:
-            possible_src = ["SrcAddr", "src_ip"]
-            src_col = next((c for c in possible_src if c in df.columns), None)
-            if src_col:
-                group_cols = [src_col]
-            else:
-                return df
+        src_col = self.group_cols_[0]
+        consistency_stats = {}
 
         # Bytes consistency
         bytes_cols = ["TotBytes", "bytes_total"]
@@ -273,95 +427,74 @@ class FeatureEngineer:
 
         if bytes_col:
             bytes_stats = (
-                df.groupby(group_cols, observed=True)[bytes_col]
-                .agg(
-                    [
-                        ("bytes_mean", "mean"),
-                        ("bytes_std", "std"),
-                        ("bytes_cv", lambda x: x.std() / (x.mean() + 1e-9)),
-                    ]
-                )
+                df.groupby([src_col], observed=True)[bytes_col]
+                .agg(["mean", "std"])
                 .reset_index()
             )
+            bytes_stats["cv"] = bytes_stats["std"] / (bytes_stats["mean"] + 1e-9)
+            bytes_stats["cv"] = (
+                bytes_stats["cv"].replace([np.inf, -np.inf], 0).fillna(0)
+            )
+            consistency_stats["bytes"] = bytes_stats.set_index(src_col).to_dict("index")
 
-            df = df.merge(bytes_stats, on=group_cols, how="left")
-
-            # Convert CV to numeric and handle inf/nan values
-            df["bytes_cv"] = pd.to_numeric(df["bytes_cv"], errors="coerce")
-            df["bytes_cv"] = df["bytes_cv"].replace([np.inf, -np.inf], np.nan)
-            df["bytes_cv"] = df["bytes_cv"].fillna(0)
-
-            df["bytes_consistency_score"] = 1 / (df["bytes_cv"] + 1e-9)
-
+        # Packets consistency
         pkts_cols = ["TotPkts", "total_packets"]
         pkts_col = next((c for c in pkts_cols if c in df.columns), None)
 
         if pkts_col:
             pkts_stats = (
-                df.groupby(group_cols, observed=True)[pkts_col]
-                .agg(
-                    [
-                        ("pkts_mean", "mean"),
-                        ("pkts_std", "std"),
-                        ("pkts_cv", lambda x: x.std() / (x.mean() + 1e-9)),
-                    ]
-                )
+                df.groupby([src_col], observed=True)[pkts_col]
+                .agg(["mean", "std"])
                 .reset_index()
             )
+            pkts_stats["cv"] = pkts_stats["std"] / (pkts_stats["mean"] + 1e-9)
+            pkts_stats["cv"] = pkts_stats["cv"].replace([np.inf, -np.inf], 0).fillna(0)
+            consistency_stats["pkts"] = pkts_stats.set_index(src_col).to_dict("index")
 
-            df = df.merge(pkts_stats, on=group_cols, how="left")
+        self.statistics_["consistency"] = consistency_stats
 
-            # Convert CV to numeric and handle inf/nan values
-            df["pkts_cv"] = pd.to_numeric(df["pkts_cv"], errors="coerce")
-            df["pkts_cv"] = df["pkts_cv"].replace([np.inf, -np.inf], np.nan)
+        logger.info(
+            f"    Stored consistency for {len(consistency_stats)} feature types"
+        )
+
+    def _transform_consistency_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply learned consistency statistics."""
+        src_col = self.group_cols_[0]
+
+        if "bytes" in self.statistics_["consistency"]:
+            bytes_df = pd.DataFrame.from_dict(
+                self.statistics_["consistency"]["bytes"], orient="index"
+            ).reset_index()
+            bytes_df = bytes_df.rename(
+                columns={
+                    "index": src_col,
+                    "mean": "bytes_mean",
+                    "std": "bytes_std",
+                    "cv": "bytes_cv",
+                }
+            )
+            df = df.merge(bytes_df, on=src_col, how="left")
+            df["bytes_mean"] = df["bytes_mean"].fillna(0)
+            df["bytes_std"] = df["bytes_std"].fillna(0)
+            df["bytes_cv"] = df["bytes_cv"].fillna(0)
+            df["bytes_consistency_score"] = 1 / (df["bytes_cv"] + 1e-9)
+
+        if "pkts" in self.statistics_["consistency"]:
+            pkts_df = pd.DataFrame.from_dict(
+                self.statistics_["consistency"]["pkts"], orient="index"
+            ).reset_index()
+            pkts_df = pkts_df.rename(
+                columns={
+                    "index": src_col,
+                    "mean": "pkts_mean",
+                    "std": "pkts_std",
+                    "cv": "pkts_cv",
+                }
+            )
+            df = df.merge(pkts_df, on=src_col, how="left")
+            df["pkts_mean"] = df["pkts_mean"].fillna(0)
+            df["pkts_std"] = df["pkts_std"].fillna(0)
             df["pkts_cv"] = df["pkts_cv"].fillna(0)
-
             df["pkts_consistency_score"] = 1 / (df["pkts_cv"] + 1e-9)
-
-        logger.info("Added size consistency features")
-
-        return df
-
-    def engineer_features(
-        self,
-        df: pd.DataFrame,
-        timestamp_col: str = "timestamp",
-        enable_periodicity: bool = True,
-        enable_aggregation: bool = True,
-        enable_entropy: bool = True,
-        enable_consistency: bool = True,
-    ) -> pd.DataFrame:
-        """
-        Apply all feature engineering steps.
-
-        Args:
-            df: Input DataFrame
-            timestamp_col: Name of timestamp column
-            enable_periodicity: Enable periodicity features
-            enable_aggregation: Enable aggregation features
-            enable_entropy: Enable entropy features
-            enable_consistency: Enable consistency features
-
-        Returns:
-            DataFrame with engineered features
-        """
-        logger.info("Starting feature engineering pipeline")
-
-        original_cols = len(df.columns)
-
-        if enable_periodicity:
-            df = self.compute_periodicity_features(df, timestamp_col)
-
-        if enable_aggregation:
-            df = self.compute_flow_aggregation_features(df, timestamp_col)
-
-        if enable_entropy:
-            df = self.compute_entropy_features(df)
-
-        if enable_consistency:
-            df = self.compute_size_consistency_features(df)
-
-        new_cols = len(df.columns) - original_cols
-        logger.info(f"Feature engineering complete. Added {new_cols} features")
 
         return df

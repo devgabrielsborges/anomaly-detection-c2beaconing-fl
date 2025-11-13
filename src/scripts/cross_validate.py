@@ -129,9 +129,11 @@ def run_cross_validation(config: dict):
         model = create_model(
             config["model_type"],
             config["model"],
-            input_dim=X_fold_train.shape[1]
-            if config["model_type"] == "neural_network"
-            else None,
+            input_dim=(
+                X_fold_train.shape[1]
+                if config["model_type"] == "neural_network"
+                else None
+            ),
         )
 
         # Train model

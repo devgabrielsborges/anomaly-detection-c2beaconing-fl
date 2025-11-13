@@ -3,7 +3,7 @@
 Preprocess UGR'16 dataset for anomaly detection.
 
 Usage:
-    python preprocess_ugr16.py [--input PATH] [--output PATH] [--advanced]
+    python preprocess_ugr16.py [--input PATH] [--output PATH]
 """
 
 import argparse
@@ -51,11 +51,6 @@ def main():
         help="Proportion of training data for validation (default: 0.1)",
     )
     parser.add_argument(
-        "--advanced",
-        action="store_true",
-        help="Enable advanced C2 beaconing feature engineering",
-    )
-    parser.add_argument(
         "--random-seed",
         type=int,
         default=42,
@@ -80,7 +75,6 @@ def main():
     logger.info(f"Test size: {args.test_size}")
     logger.info(f"Validation size: {args.val_size}")
     logger.info(f"Random seed: {args.random_seed}")
-    logger.info(f"Advanced features: {args.advanced}")
     logger.info("=" * 80)
 
     preprocessor = UGR16Preprocessor(
@@ -95,27 +89,40 @@ def main():
     preprocessor.clean_data()
     preprocessor.create_labels()
     preprocessor.extract_features()
-
-    if args.advanced:
-        logger.info("Applying advanced feature engineering")
-        engineer = FeatureEngineer(time_window="1H")
-
-        preprocessor.df = engineer.engineer_features(
-            preprocessor.df,
-            timestamp_col="timestamp",
-            enable_periodicity=True,
-            enable_aggregation=True,
-            enable_entropy=True,
-            enable_consistency=True,
-        )
-
     preprocessor.handle_missing_values(strategy="drop")
 
+    logger.info("=" * 80)
+    logger.info("SPLITTING DATA (before feature engineering to prevent leakage)")
+    logger.info("=" * 80)
     train_df, val_df, test_df = preprocessor.split_data(
         preprocessor.df, label_col="binary_label"
     )
 
-    prefix = "ugr16_advanced" if args.advanced else "ugr16"
+    logger.info("=" * 80)
+    logger.info("APPLYING C2 BEACONING FEATURE ENGINEERING")
+    logger.info("(with proper train/test separation)")
+    logger.info("=" * 80)
+    engineer = FeatureEngineer(time_window="1H")
+
+    logger.info("Fitting feature engineer on TRAINING data...")
+    train_df = engineer.fit_transform(
+        train_df,
+        timestamp_col="timestamp",
+        enable_periodicity=True,
+        enable_aggregation=True,
+        enable_entropy=True,
+        enable_consistency=True,
+    )
+
+    logger.info("Transforming VALIDATION data using training statistics...")
+    val_df = engineer.transform(val_df)
+
+    logger.info("Transforming TEST data using training statistics...")
+    test_df = engineer.transform(test_df)
+
+    logger.info("✓ Feature engineering completed without data leakage")
+
+    prefix = "ugr16"
     preprocessor.save_processed_data(train_df, val_df, test_df, prefix=prefix)
 
     logger.info("=" * 80)

@@ -215,9 +215,11 @@ def train_centralized(config: dict):
         mlflow_logger.log_model(
             model.model,
             f"{config['model']['type']}_model",
-            model_type="sklearn"
-            if config["model"]["type"] in ["random_forest", "xgboost"]
-            else "pytorch",
+            model_type=(
+                "sklearn"
+                if config["model"]["type"] in ["random_forest", "xgboost"]
+                else "pytorch"
+            ),
         )
 
         logger.info("=" * 80)

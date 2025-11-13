@@ -215,9 +215,9 @@ class ReservoirSampler:
             "benign_samples": int(n_benign),
             "malicious_ratio": float(n_malicious / len(df)) if len(df) > 0 else 0,
             "columns": list(df.columns),
-            "top_10_labels": dict(list(label_counts.items())[:10])
-            if label_counts
-            else {},
+            "top_10_labels": (
+                dict(list(label_counts.items())[:10]) if label_counts else {}
+            ),
         }
 
         logger.info("")
