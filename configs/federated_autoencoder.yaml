@@ -1,0 +1,32 @@
+data:
+  dataset: ugr16
+  data_path: data/processed
+  train_splits: ["train"]
+
+model:
+  type: autoencoder
+  autoencoder:
+    encoding_dim: 16
+    hidden_dims: [64, 32]
+    dropout_rate: 0.1
+    learning_rate: 0.001
+    batch_size: 256
+    epochs_per_round: 5
+    contamination: 0.03
+
+federated:
+  use_simulation: true
+  num_clients: 3
+  num_rounds: 5
+  strategy: fedavg
+  fraction_fit: 1.0
+  fraction_evaluate: 1.0
+  min_fit_clients: 2
+  min_evaluate_clients: 2
+  min_available_clients: 2
+  partition_strategy: non-iid-dirichlet
+  dirichlet_alpha: 0.5
+  client_val_size: 0.2
+
+logging:
+  level: INFO
