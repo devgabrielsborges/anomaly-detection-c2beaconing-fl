@@ -82,8 +82,8 @@ For detailed instructions, see:
    ```
 
    Generated PDFs summarize dataset methodology, label distributions, temporal patterns, and implications for federated training.
-1. Download or generate the processed Parquet/CSV inputs referenced in `data/raw/` and `data/processed/metadata` JSON files.
-2. Launch `notebooks/eda_ctu13.ipynb` or `notebooks/eda_ugr16.ipynb` and execute sequentially to regenerate plots/tables.
+2. Download or generate the processed Parquet/CSV inputs referenced in `data/raw/` and `data/processed/metadata` JSON files.
+3. Launch `notebooks/eda_ctu13.ipynb` or `notebooks/eda_ugr16.ipynb` and execute sequentially to regenerate plots/tables.
 
 ## Training Workflows
 
@@ -95,9 +95,8 @@ For detailed instructions, see:
   ```
 - **Centralized training:** `python src/scripts/train_centralized.py --config configs/centralized_config.yaml`
 - **Cross-validation experiments:** `python src/scripts/cross_validate.py --config configs/cv_xgboost_balanced.yaml`
-- **Federated simulation:** `python src/federated/server.py --config configs/federated_config.yaml`
-
-All runs log metrics and artifacts through MLflow (`src/utils/mlflow_logger.py`). Adjust class-balancing strategies with the provided config variants (class weights, balanced sampling, etc.).
+- **Federated simulation:** `python src/scripts/train_federated.py --config configs/federated_config.yaml`
+- [ ] All runs log metrics and artifacts through MLflow (`src/utils/mlflow_logger.py`). Adjust class-balancing strategies with the provided config variants (class weights, balanced sampling, etc.).
 
 ## Roadmap
 
