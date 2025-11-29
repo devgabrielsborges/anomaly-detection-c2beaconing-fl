@@ -5,8 +5,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 from sklearn.model_selection import train_test_split
+
+from src.utils.data_loading import (
+    dataframe_to_arrays,
+    load_splits,
+    normalize_data_section,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,50 +263,32 @@ def load_preprocessed_data(
     Returns:
         Tuple of (X_train, y_train, X_test, y_test, feature_names)
     """
-    data_path = Path(data_path)
+    dataset_name = prefix or dataset
+    data_section: Dict[str, any] = {
+        "dataset": dataset_name,
+        "data_path": data_path,
+    }
 
-    logger.info(f"Loading {dataset} data from {data_path}")
+    if features_to_drop:
+        data_section["features_to_drop"] = features_to_drop
 
-    # Load train and test data
-    train_df = pd.read_parquet(data_path / f"{dataset}_train.parquet")
-    test_df = pd.read_parquet(data_path / f"{dataset}_test.parquet")
+    schema = normalize_data_section(
+        data_section,
+        fallback_dataset=dataset_name,
+        fallback_path=data_path,
+    )
+
+    logger.info(f"Loading {dataset_name} data from {schema.data_path}")
+
+    train_df = load_splits(schema, ["train"])
+    test_df = load_splits(schema, ["test"])
 
     logger.info(f"Loaded {len(train_df)} train, {len(test_df)} test samples")
 
-    # Determine label column
-    label_col = "label" if dataset == "ctu13" else "binary_label"
-
-    # Default features to drop
-    default_drop = [
-        "StartTime",
-        "SrcAddr",
-        "DstAddr",
-        "Label",
-        "scenario",
-        "Timestamp",
-        "Te",
-    ]
-
-    if features_to_drop is None:
-        features_to_drop = []
-
-    # Combine default and user-specified drops
-    all_drops = list(set(default_drop + features_to_drop))
-
-    # Separate features and labels - only select numeric columns
-    feature_cols = [
-        col
-        for col in train_df.columns
-        if col != label_col
-        and col not in all_drops
-        and train_df[col].dtype in ["int64", "int32", "float64", "float32", "bool"]
-    ]
-
-    X_train = train_df[feature_cols].values.astype(np.float32)
-    y_train = train_df[label_col].values.astype(np.int64)
-
-    X_test = test_df[feature_cols].values.astype(np.float32)
-    y_test = test_df[label_col].values.astype(np.int64)
+    X_train, y_train, feature_cols, _ = dataframe_to_arrays(train_df, schema)
+    X_test, y_test, _, _ = dataframe_to_arrays(
+        test_df, schema, feature_order=feature_cols
+    )
 
     logger.info(
         f"Features: {len(feature_cols)}, Train: {X_train.shape}, Test: {X_test.shape}"

@@ -17,8 +17,12 @@ from src.evaluation import (
     plot_pr_curve,
     plot_roc_curve,
 )  # noqa: E402, E501
-from src.federated.data_loader import load_preprocessed_data  # noqa: E402
 from src.models import NeuralNetworkModel, RandomForestModel, XGBoostModel  # noqa: E402
+from src.utils.data_loading import (
+    dataframe_to_arrays,
+    load_splits,
+    normalize_data_section,
+)  # noqa: E402
 from src.utils.mlflow_logger import MLflowLogger  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -74,12 +78,34 @@ def train_centralized(config: dict):
     results_dir.mkdir(exist_ok=True)
     plots_dir.mkdir(exist_ok=True)
 
-    # Load data
-    logger.info("Loading preprocessed data...")
-    X_train, y_train, X_test, y_test, feature_names = load_preprocessed_data(
-        data_path=config["data"]["data_path"],
-        dataset=config["data"]["dataset"],
-        features_to_drop=config["data"].get("features_to_drop"),
+    data_section = dict(config.get("data", {}))
+    default_dataset = data_section.get("dataset", "ctu13")
+    default_path = data_section.get("data_path", "data/processed")
+    data_section.setdefault("dataset", default_dataset)
+    data_section.setdefault("data_path", default_path)
+
+    train_splits = data_section.get("train_splits") or ["train"]
+    eval_splits = data_section.get("eval_splits") or ["test"]
+
+    data_schema = normalize_data_section(
+        data_section,
+        fallback_dataset=default_dataset,
+        fallback_path=default_path,
+    )
+
+    logger.info(
+        "Loading splits (train=%s, eval=%s) for %s",
+        ",".join(train_splits),
+        ",".join(eval_splits),
+        data_schema.dataset,
+    )
+
+    train_df = load_splits(data_schema, train_splits)
+    eval_df = load_splits(data_schema, eval_splits)
+
+    X_train, y_train, feature_names, _ = dataframe_to_arrays(train_df, data_schema)
+    X_test, y_test, _, _ = dataframe_to_arrays(
+        eval_df, data_schema, feature_order=feature_names
     )
 
     # Sample data if requested (for quick testing)

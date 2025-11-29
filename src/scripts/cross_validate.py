@@ -3,22 +3,113 @@
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import yaml
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import (
+    StratifiedGroupKFold,
+    StratifiedKFold,
+    TimeSeriesSplit,
+)
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))  # noqa: E402
 
 from src.evaluation import compute_metrics  # noqa: E402
-from src.federated.data_loader import load_preprocessed_data  # noqa: E402
 from src.models import NeuralNetworkModel, RandomForestModel, XGBoostModel  # noqa: E402
+from src.utils.data_loading import (  # noqa: E402
+    dataframe_to_arrays,
+    load_splits,
+    normalize_data_section,
+)
 from src.utils.mlflow_logger import MLflowLogger  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SplitterConfig:
+    """Normalized configuration for CV split strategy."""
+
+    strategy: str
+    n_folds: int
+    random_state: int
+    shuffle: bool
+    time_test_size: Optional[int]
+    time_gap: int
+    max_train_size: Optional[int]
+
+
+def normalize_splitter_config(
+    config: dict, group_column: Optional[str]
+) -> SplitterConfig:
+    """Normalize splitter configuration with sensible defaults."""
+
+    splitter_cfg = config.get("splitter", {})
+    strategy = splitter_cfg.get("strategy")
+
+    if strategy is None:
+        strategy = "stratified_group_kfold" if group_column else "stratified_kfold"
+
+    n_folds = splitter_cfg.get("n_folds") or config.get("n_folds", 5)
+    random_state = splitter_cfg.get("random_state") or config.get("random_state", 42)
+    shuffle = splitter_cfg.get("shuffle", True)
+
+    time_fraction = splitter_cfg.get("time_test_size_fraction")
+    time_gap = splitter_cfg.get("time_gap", 0)
+    max_train_size = splitter_cfg.get("max_train_size")
+
+    return SplitterConfig(
+        strategy=strategy,
+        n_folds=n_folds,
+        random_state=random_state,
+        shuffle=shuffle,
+        time_test_size=time_fraction,
+        time_gap=time_gap,
+        max_train_size=max_train_size,
+    )
+
+
+def build_splitter(
+    splitter_cfg: SplitterConfig,
+    y: np.ndarray,
+    groups: Optional[np.ndarray],
+) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
+    """Instantiate appropriate splitter iterator."""
+
+    if splitter_cfg.strategy == "stratified_group_kfold":
+        if groups is None:
+            raise ValueError("group_column must be provided for stratified_group_kfold")
+        splitter = StratifiedGroupKFold(
+            n_splits=splitter_cfg.n_folds,
+            shuffle=splitter_cfg.shuffle,
+            random_state=splitter_cfg.random_state,
+        )
+        return splitter.split(np.zeros(len(y)), y, groups)
+
+    if splitter_cfg.strategy == "temporal":
+        test_size = splitter_cfg.time_test_size
+        if test_size is not None and test_size < 1:
+            test_size = max(1, int(len(y) * test_size))
+        splitter = TimeSeriesSplit(
+            n_splits=splitter_cfg.n_folds,
+            test_size=test_size,
+            gap=splitter_cfg.time_gap,
+            max_train_size=splitter_cfg.max_train_size,
+        )
+        indices = np.arange(len(y))
+        return splitter.split(indices)
+
+    splitter = StratifiedKFold(
+        n_splits=splitter_cfg.n_folds,
+        shuffle=splitter_cfg.shuffle,
+        random_state=splitter_cfg.random_state,
+    )
+    return splitter.split(np.zeros(len(y)), y)
 
 
 def setup_logging(level: str = "INFO", format_str: str = None):
@@ -59,38 +150,75 @@ def run_cross_validation(config: dict):
     setup_logging(config.get("logging_level", "INFO"))
     logger.info("Starting k-fold cross-validation")
 
-    # Load data
-    logger.info(f"Loading data from {config['data_path']}")
-    dataset = config.get("dataset", "ctu13")
-    X_train, y_train, X_test, y_test, feature_names = load_preprocessed_data(
-        config["data_path"],
-        dataset=dataset,
-        features_to_drop=config.get("features_to_drop", []),
+    data_section = dict(config.get("data", {}))
+    data_section.setdefault("dataset", config.get("dataset", "ctu13"))
+    data_section.setdefault("data_path", config.get("data_path", "data/processed"))
+    splits = data_section.get("splits") or ["train", "val"]
+
+    data_schema = normalize_data_section(
+        data_section,
+        fallback_dataset=config.get("dataset", "ctu13"),
+        fallback_path=config.get("data_path", "data/processed"),
     )
 
-    # Combine train and test for cross-validation
-    X_full = np.vstack([X_train, X_test])
-    y_full = np.concatenate([y_train, y_test])
+    splitter_cfg = normalize_splitter_config(config, data_schema.group_column)
+
+    logger.info(
+        "Loading %s splits (%s) from %s",
+        data_schema.dataset,
+        ", ".join(splits),
+        data_schema.data_path,
+    )
+
+    df = load_splits(data_schema, splits)
+
+    # Temporal strategy requires deterministic ordering before feature extraction
+    if splitter_cfg.strategy == "temporal":
+        if not data_schema.time_column:
+            raise ValueError(
+                "time_column must be set in data config for temporal splitting"
+            )
+        if data_schema.time_column not in df.columns:
+            raise KeyError(
+                f"Time column '{data_schema.time_column}' not present in dataframe"
+            )
+        df = df.sort_values(data_schema.time_column).reset_index(drop=True)
+
+    X_full, y_full, feature_names, groups = dataframe_to_arrays(
+        df, data_schema, return_groups=True
+    )
 
     # Apply sampling if specified
     sample_size = config.get("sample_size")
     if sample_size is not None and sample_size < len(X_full):
-        logger.info(f"Sampling {sample_size} from {len(X_full)} total samples")
-        rng = np.random.RandomState(config.get("random_state", 42))
-        sample_idx = rng.choice(len(X_full), size=sample_size, replace=False)
-        X_full = X_full[sample_idx]
-        y_full = y_full[sample_idx]
+        if splitter_cfg.strategy == "temporal":
+            logger.info(
+                "Temporal split selected; taking first %d samples to preserve order",
+                sample_size,
+            )
+            X_full = X_full[:sample_size]
+            y_full = y_full[:sample_size]
+            if groups is not None:
+                groups = groups[:sample_size]
+        else:
+            logger.info(f"Sampling {sample_size} from {len(X_full)} total samples")
+            rng = np.random.RandomState(splitter_cfg.random_state)
+            sample_idx = rng.choice(len(X_full), size=sample_size, replace=False)
+            X_full = X_full[sample_idx]
+            y_full = y_full[sample_idx]
+            if groups is not None:
+                groups = groups[sample_idx]
 
     logger.info(f"Combined dataset shape: {X_full.shape}")
     logger.info(f"Class distribution: {np.bincount(y_full.astype(int))}")
 
-    # Setup cross-validation
-    n_folds = config.get("n_folds", 5)
-    skf = StratifiedKFold(
-        n_splits=n_folds, shuffle=True, random_state=config.get("random_state", 42)
-    )
+    split_iterator = build_splitter(splitter_cfg, y_full, groups)
 
-    logger.info(f"Using {n_folds}-fold stratified cross-validation")
+    logger.info(
+        "Using %s with %d folds",
+        splitter_cfg.strategy.replace("_", " ").title(),
+        splitter_cfg.n_folds,
+    )
 
     # Initialize MLflow logger
     mlflow_logger = None
@@ -105,7 +233,7 @@ def run_cross_validation(config: dict):
     fold_results = []
 
     # Run cross-validation
-    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X_full, y_full)):
+    for fold_idx, (train_idx, val_idx) in enumerate(split_iterator):
         logger.info(f"\n{'=' * 60}")
         logger.info(f"FOLD {fold_idx + 1}/{n_folds}")
         logger.info(f"{'=' * 60}")
@@ -218,8 +346,8 @@ def run_cross_validation(config: dict):
     for metric in ["accuracy", "precision", "recall", "f1", "roc_auc"]:
         mean = df_results[metric].mean()
         std = df_results[metric].std()
-        ci_lower = mean - 1.96 * std / np.sqrt(n_folds)
-        ci_upper = mean + 1.96 * std / np.sqrt(n_folds)
+        ci_lower = mean - 1.96 * std / np.sqrt(splitter_cfg.n_folds)
+        ci_upper = mean + 1.96 * std / np.sqrt(splitter_cfg.n_folds)
         logger.info(f"  {metric.capitalize():10s}: [{ci_lower:.4f}, {ci_upper:.4f}]")
 
     # Log to MLflow
@@ -252,8 +380,9 @@ def run_cross_validation(config: dict):
     with open(summary_file, "w") as f:
         f.write(f"Cross-Validation Summary - {config['model_type']}\n")
         f.write(f"{'=' * 60}\n\n")
-        f.write(f"Dataset: {config['data_path']}\n")
-        f.write(f"Number of folds: {n_folds}\n")
+        f.write(f"Dataset: {data_schema.dataset}\n")
+        f.write(f"Splits used: {', '.join(splits)}\n")
+        f.write(f"Number of folds: {splitter_cfg.n_folds}\n")
         f.write(f"Total samples: {len(X_full)}\n")
         f.write(f"Class distribution: {np.bincount(y_full.astype(int))}\n\n")
         f.write("Mean ± Std across folds:\n")
