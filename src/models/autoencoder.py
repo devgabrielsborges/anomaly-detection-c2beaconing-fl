@@ -72,8 +72,8 @@ class AutoencoderNetwork(nn.Module):
             prev_dim = dim
 
         decoder_layers.append(nn.Linear(prev_dim, input_dim))
-        # No activation for output if data is standardized (can be negative)
-        # If normalized to [0,1], use Sigmoid. Assuming standardization here.
+        # Use Sigmoid for output when data is normalized to [0,1] (MinMaxScaler)
+        decoder_layers.append(nn.Sigmoid())
         self.decoder = nn.Sequential(*decoder_layers)
 
     def forward(self, x):
@@ -97,6 +97,8 @@ class AutoencoderModel(BaseModel):
         epochs: int = 50,
         early_stopping_patience: int = 5,
         contamination: float = 0.01,  # Expected proportion of outliers in data
+        threshold_strategy: str = "quantile",  # 'quantile' or 'std'
+        threshold_k: float = 3.0,  # Multiplier for std strategy
         device: Optional[str] = None,
         random_state: int = 42,
         **kwargs,
@@ -113,7 +115,9 @@ class AutoencoderModel(BaseModel):
             batch_size: Batch size
             epochs: Max epochs
             early_stopping_patience: Patience for early stopping
-            contamination: Expected contamination (used for thresholding if needed)
+            contamination: Expected contamination (used for quantile thresholding)
+            threshold_strategy: Strategy for threshold calculation ('quantile' or 'std')
+            threshold_k: Multiplier for std strategy (mean + k * std)
             device: 'cuda' or 'cpu'
             random_state: Random seed
         """
@@ -127,6 +131,8 @@ class AutoencoderModel(BaseModel):
             epochs=epochs,
             early_stopping_patience=early_stopping_patience,
             contamination=contamination,
+            threshold_strategy=threshold_strategy,
+            threshold_k=threshold_k,
             random_state=random_state,
             **kwargs,
         )
@@ -301,13 +307,27 @@ class AutoencoderModel(BaseModel):
                 errors.extend(batch_errors.cpu().numpy())
 
         errors = np.array(errors)
-        # Set threshold at (1 - contamination) quantile
-        # e.g., if contamination is 0.01, we set threshold at 99th percentile
-        self.threshold = np.quantile(errors, 1 - self.params["contamination"])
-        logger.info(
-            f"Threshold set to {self.threshold:.6f} "
-            f"(contamination={self.params['contamination']})"
-        )
+
+        # Determine threshold based on strategy
+        strategy = self.params.get("threshold_strategy", "quantile")
+
+        if strategy == "std":
+            mean_error = np.mean(errors)
+            std_error = np.std(errors)
+            k = self.params.get("threshold_k", 3.0)
+            self.threshold = mean_error + k * std_error
+            logger.info(
+                f"Threshold set to {self.threshold:.6f} using std strategy "
+                f"(mean={mean_error:.6f}, std={std_error:.6f}, k={k})"
+            )
+        else:
+            # Default to quantile
+            # Set threshold at (1 - contamination) quantile
+            self.threshold = np.quantile(errors, 1 - self.params["contamination"])
+            logger.info(
+                f"Threshold set to {self.threshold:.6f} using quantile strategy "
+                f"(contamination={self.params['contamination']})"
+            )
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """

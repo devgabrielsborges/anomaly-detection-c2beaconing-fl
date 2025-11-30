@@ -9,7 +9,7 @@ from typing import Dict, Tuple
 import flwr as fl
 import numpy as np
 import yaml
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))  # noqa: E402
@@ -175,8 +175,8 @@ def run_simulation(config: dict) -> None:
     X, y, feature_names, _ = dataframe_to_arrays(train_df, data_schema)
 
     # Normalize features
-    logger.info("Normalizing features using StandardScaler")
-    scaler = StandardScaler()
+    logger.info("Normalizing features using MinMaxScaler")
+    scaler = MinMaxScaler()
     X = scaler.fit_transform(X)
 
     neg, pos, imbalance = compute_class_stats(y)
