@@ -1,5 +1,5 @@
 data:
-  dataset: ugr16
+  dataset: ctu13
   data_path: data/processed
   train_splits: ["train"]
 
@@ -11,7 +11,7 @@ model:
     dropout_rate: 0.1
     learning_rate: 0.001
     batch_size: 256
-    epochs_per_round: 10
+    epochs_per_round: 3
     contamination: 0.001
     threshold_strategy: std
     threshold_k: 3.0
