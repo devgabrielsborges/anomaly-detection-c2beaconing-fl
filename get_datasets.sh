@@ -1,0 +1,2 @@
+wget -O- https://nesg.ugr.es/nesg-ugr16/download/attack/july/week5/july_week5_csv.tar.gz | tar -xzvf - -C data/raw
+wget -O- https://mcfp.felk.cvut.cz/publicDatasets/CTU-13-Dataset/CTU-13-Dataset.tar.bz2 | tar -xjvf - -C data/raw
